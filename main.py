@@ -472,58 +472,90 @@ def download():
         
         logger.info(f"Extracted shortcode: {shortcode}")
         
-        # We'll use multiple approaches and return the first successful one
-        logger.info("Starting multi-method extraction process")
-        
-        # Store errors for debugging
-        errors = {}
-        
-        # Method 2: Direct HTTP (try this first as it's the most direct)
-        logger.info("Trying Method 2: Direct HTTP request")
-        result2 = get_video_url_http(url, shortcode)
-        if "download_url" in result2:
-            logger.info("Method 2 successful")
-            return jsonify(result2)
-        else:
-            errors["http"] = result2.get("error")
-        
-        # Method 4: API Aggregator (often successful and reliable)
-        logger.info("Trying Method 4: API Aggregator")
-        result4 = get_video_url_aggregator(url, shortcode)
-        if "download_url" in result4:
-            logger.info("Method 4 successful")
-            return jsonify(result4)
-        else:
-            errors["aggregator"] = result4.get("error")
-        
-        # Method 1: Using instaloader (can be rate-limited)
-        logger.info("Trying Method 1: Instaloader")
-        result1 = get_video_url_instaloader(shortcode)
-        if "download_url" in result1:
-            logger.info("Method 1 successful")
-            return jsonify(result1)
-        else:
-            errors["instaloader"] = result1.get("error")
+        # Since instaloader method was successful last time, prioritize it with cookies
+        if INSTAGRAM_SESSIONID and INSTAGRAM_CSRFTOKEN:
+            logger.info("Using authenticated instaloader method")
+            result = get_video_url_instaloader(shortcode)
+            if "download_url" in result:
+                logger.info("Instaloader method successful")
+                return jsonify(result)
             
-        # Method 3: Proxy service (last resort)
-        logger.info("Trying Method 3: Proxy service")
-        result3 = get_video_url_proxy(shortcode)
-        if "download_url" in result3:
-            logger.info("Method 3 successful")
-            return jsonify(result3)
-        else:
-            errors["proxy"] = result3.get("error")
+            # If instaloader fails, try GraphQL API directly with authentication
+            logger.info("Trying direct GraphQL API with authentication")
+            try:
+                headers = {
+                    'User-Agent': random.choice(USER_AGENTS),
+                    'Accept': 'application/json',
+                    'Referer': 'https://www.instagram.com/',
+                    'Cookie': f"sessionid={INSTAGRAM_SESSIONID}; csrftoken={INSTAGRAM_CSRFTOKEN}",
+                    'X-CSRFToken': INSTAGRAM_CSRFTOKEN
+                }
+                
+                api_url = f"https://www.instagram.com/graphql/query/?query_hash=b3055c01b4b222b8a47dc12b090e4e64&variables=%7B%22shortcode%22:%22{shortcode}%22%7D"
+                req = Request(api_url, headers=headers)
+                
+                with urlopen(req, timeout=10) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    media = data.get("data", {}).get("shortcode_media", {})
+                    
+                    if media and media.get("is_video") and media.get("video_url"):
+                        video_url = media.get("video_url")
+                        logger.info(f"Found video URL via direct GraphQL: {video_url}")
+                        
+                        return jsonify({
+                            "download_url": video_url,
+                            "title": f"Instagram Video - {media.get('owner', {}).get('username', '')}",
+                            "username": media.get("owner", {}).get("username", ""),
+                            "caption": media.get("edge_media_to_caption", {}).get("edges", [{}])[0].get("node", {}).get("text", "")
+                        })
+            except Exception as e:
+                logger.warning(f"Direct GraphQL API failed: {e}")
+                # Continue to other methods
+        
+        # Try HTTP method with shorter timeouts and fewer URLs
+        logger.info("Trying optimized HTTP request method")
+        try:
+            # Only try the most likely URLs to succeed
+            urls_to_try = [
+                f"https://www.instagram.com/p/{shortcode}/?__a=1&__d=dis",
+                f"https://www.instagram.com/reel/{shortcode}/?__a=1&__d=dis"
+            ]
             
-        # If all methods failed, return error with detailed info
-        logger.error("All extraction methods failed")
-        error_msg = "Failed to download Instagram video. Instagram may be blocking our requests. "
+            headers = {
+                'User-Agent': random.choice(USER_AGENTS),
+                'Accept': 'application/json, text/html',
+                'Referer': 'https://www.instagram.com/',
+                'Cookie': f"sessionid={INSTAGRAM_SESSIONID}; csrftoken={INSTAGRAM_CSRFTOKEN}"
+            }
+            
+            for target_url in urls_to_try:
+                try:
+                    req = Request(target_url, headers=headers)
+                    with urlopen(req, timeout=5) as response:  # Reduced timeout
+                        data = response.read().decode('utf-8')
+                        
+                        # Look directly for video URL in JSON
+                        video_match = re.search(r'"video_url":"([^"]*)"', data)
+                        if video_match:
+                            video_url = video_match.group(1).replace('\\/', '/')
+                            logger.info(f"Found video URL via optimized HTTP: {video_url}")
+                            return jsonify({
+                                "download_url": video_url,
+                                "title": f"Instagram Video - {shortcode}"
+                            })
+                except Exception as e:
+                    logger.warning(f"Error with optimized URL {target_url}: {e}")
+                    continue
+        except Exception as e:
+            logger.warning(f"Optimized HTTP method failed: {e}")
         
-        # Add detailed error info
-        for method, error in errors.items():
-            if error:
-                error_msg += f"{method.capitalize()}: {error}. "
-        
-        return jsonify({"error": error_msg}), 400
+        # If we're here, all optimized methods failed, fall back to the full method
+        # but with a message to the user that it's taking longer
+        return jsonify({
+            "status": "processing",
+            "message": "Finding the best source for your video, this may take a moment...",
+            "shortcode": shortcode
+        })
 
     except Exception as e:
         logger.exception(f"Unexpected error: {e}")

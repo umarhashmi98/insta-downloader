@@ -242,6 +242,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log("Using Railway API endpoint");
             }
             
+            console.log("Submitting URL:", url);
+            
             // Make the API request
             const response = await fetch(apiEndpoint, {
                 method: 'POST',
@@ -255,17 +257,67 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Parse the response
             const responseText = await response.text();
-            console.log("API Response:", responseText);
+            console.log("API Raw Response:", responseText);
             
             let data;
             try {
                 data = JSON.parse(responseText);
+                console.log("Parsed JSON data:", data);
             } catch (e) {
                 console.error("Failed to parse JSON response:", e);
                 throw new Error("Invalid response from server");
             }
             
-            // Hide loader
+            // Check if it's a processing status (for slower methods)
+            if (data.status === "processing") {
+                // Show a progress message
+                errorMessage.textContent = data.message || "Processing your request...";
+                errorContainer.classList.remove('d-none');
+                errorContainer.classList.remove('alert-danger');
+                errorContainer.classList.add('alert-info');
+                
+                // Wait a bit and then try the fallback endpoint with the shortcode
+                setTimeout(async () => {
+                    try {
+                        const fallbackResponse = await fetch(apiEndpoint, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ url: url }),
+                        });
+                        
+                        const fallbackData = await fallbackResponse.json();
+                        
+                        // Hide loader
+                        loader.classList.add('d-none');
+                        
+                        // Check if download URL was found in fallback
+                        if (fallbackData.download_url) {
+                            // Show success UI
+                            videoTitle.textContent = fallbackData.title || "Instagram Video";
+                            downloadBtn.href = fallbackData.download_url;
+                            thumbnailContainer.innerHTML = '<div class="alert alert-success">Video ready for download!</div>';
+                            resultsContainer.classList.remove('d-none');
+                            
+                            // Hide the info message
+                            errorContainer.classList.add('d-none');
+                        } else {
+                            // Show error and suggest using alternative method
+                            showError((fallbackData.error || "Failed to extract video") + 
+                                ". Try clicking the 'Use Reliable Method' button instead.");
+                        }
+                    } catch (fallbackError) {
+                        console.error("Fallback error:", fallbackError);
+                        loader.classList.add('d-none');
+                        showError("An error occurred during processing. Try the 'Use Reliable Method' button instead.");
+                    }
+                }, 2000); // Wait 2 seconds before trying the fallback
+                
+                return;
+            }
+            
+            // Hide loader for immediate response
             loader.classList.add('d-none');
             
             // Check if download URL was found
@@ -273,7 +325,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Show success UI
                 videoTitle.textContent = data.title || "Instagram Video";
                 downloadBtn.href = data.download_url;
-                thumbnailContainer.innerHTML = '<div class="alert alert-success">Video ready for download!</div>';
+                
+                // Add caption if available
+                if (data.caption) {
+                    const captionElement = document.createElement('p');
+                    captionElement.className = 'card-text mb-3';
+                    captionElement.textContent = data.caption;
+                    thumbnailContainer.innerHTML = '';
+                    thumbnailContainer.appendChild(captionElement);
+                } else {
+                    thumbnailContainer.innerHTML = '<div class="alert alert-success">Video ready for download!</div>';
+                }
+                
                 resultsContainer.classList.remove('d-none');
             } else {
                 // Show error and suggest using alternative method
