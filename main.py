@@ -1,8 +1,15 @@
-from flask import Flask, request, jsonify
-import subprocess
+import os
+import re
 import json
+import time
+import random
 import logging
+import tempfile
+import urllib.parse
+from urllib.request import Request, urlopen
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
+import instaloader
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -11,8 +18,413 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
+# Initialize instaloader instance
+L = instaloader.Instaloader(
+    download_pictures=True,
+    download_videos=True,
+    download_video_thumbnails=False,
+    download_geotags=False,
+    download_comments=False,
+    save_metadata=False,
+    compress_json=False,
+    quiet=False,
+)
+
+# Configure user agents for requests
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1"
+]
+
+# Function to extract shortcode from Instagram URL
+def extract_shortcode(url):
+    """Extract the shortcode from an Instagram URL."""
+    try:
+        # Parse the URL
+        parsed_url = urllib.parse.urlparse(url)
+        path = parsed_url.path
+        
+        # Use regex to find the shortcode
+        # Instagram shortcodes are typically in /p/{shortcode}/ or /reel/{shortcode}/
+        match = re.search(r'/(p|reel|tv)/([A-Za-z0-9_-]+)', path)
+        if match:
+            return match.group(2)
+        return None
+    except Exception as e:
+        logger.error(f"Error extracting shortcode: {e}")
+        return None
+
+# Method 1: Using instaloader to get direct video URL
+def get_video_url_instaloader(shortcode):
+    """Get video URL using instaloader library."""
+    try:
+        logger.info(f"Attempting to get post with shortcode: {shortcode}")
+        post = instaloader.Post.from_shortcode(L.context, shortcode)
+        
+        # Check if it's a video
+        if post.is_video:
+            logger.info(f"Found video: {post.video_url}")
+            return {
+                "download_url": post.video_url,
+                "title": f"Instagram Video - {post.owner_username}",
+                "thumbnail_url": post.url,
+                "username": post.owner_username,
+                "caption": post.caption if post.caption else ""
+            }
+        else:
+            logger.info("Post is not a video")
+            return {"error": "Post is not a video"}
+    except instaloader.exceptions.InstaloaderException as e:
+        logger.error(f"Instaloader error: {e}")
+        return {"error": f"Instaloader error: {str(e)}"}
+    except Exception as e:
+        logger.exception(f"Error using instaloader: {e}")
+        return {"error": f"Error extracting video URL: {str(e)}"}
+
+# Method 2: Direct HTTP request with custom headers and multiple approaches
+def get_video_url_http(url, shortcode):
+    """Get video URL using direct HTTP request with multiple approaches."""
+    try:
+        # Try multiple URLs that might contain the video
+        urls_to_try = [
+            f"https://www.instagram.com/p/{shortcode}/embed/",  # Embed page often works without login
+            f"https://www.instagram.com/p/{shortcode}/embed/captioned/",  # Alternate embed format
+            f"https://www.instagram.com/reel/{shortcode}/embed/",  # For reels specific embed
+            f"https://www.instagram.com/graphql/query/?query_hash=b3055c01b4b222b8a47dc12b090e4e64&variables=%7B%22shortcode%22:%22{shortcode}%22%7D"  # GraphQL API
+        ]
+        
+        # Rotate different user agent strings to avoid detection
+        headers = {
+            'User-Agent': random.choice(USER_AGENTS),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Cache-Control': 'max-age=0',
+            'TE': 'trailers',
+            'Referer': 'https://www.google.com/',  # Make it look like we came from Google
+        }
+        
+        # Try different delaying strategies between requests to avoid rate limits
+        delay_strategies = [0.5, 1, 1.5, 2]
+        
+        # Try each URL with different delays
+        for target_url in urls_to_try:
+            # Add some randomness to avoid pattern detection
+            time.sleep(random.choice(delay_strategies))
+            
+            try:
+                logger.info(f"Trying to fetch URL: {target_url}")
+                
+                # Randomize headers slightly for each request
+                current_headers = headers.copy()
+                if random.random() > 0.5:
+                    current_headers['Accept-Encoding'] = 'gzip, deflate, br'
+                
+                req = Request(target_url, headers=current_headers)
+                with urlopen(req, timeout=15) as response:
+                    html = response.read().decode('utf-8')
+                    
+                    # Look for multiple video URL patterns
+                    video_patterns = [
+                        r'<video[^>]*src="([^"]*)"',  # Standard video tag
+                        r'<source[^>]*src="([^"]*)"',  # Source tag inside video
+                        r'property="og:video:secure_url"\s*content="([^"]*)"',  # OpenGraph tag
+                        r'property="og:video"\s*content="([^"]*)"',  # Alternative OpenGraph
+                        r'<meta\s*name="twitter:player:stream"\s*content="([^"]*)"',  # Twitter card
+                        r'"video_url":"([^"]*)"',  # JSON format
+                        r'"video_url_encoded":"([^"]*)"',  # JSON encoded format
+                        r'"contentUrl":"([^"]*)"'  # JSON-LD format
+                    ]
+                    
+                    # Try each video pattern
+                    for pattern in video_patterns:
+                        video_url_match = re.search(pattern, html)
+                        if video_url_match:
+                            video_url = video_url_match.group(1)
+                            # Clean up URL (unescape special characters)
+                            video_url = video_url.replace('\\/', '/').replace('\\u0026', '&')
+                            
+                            logger.info(f"Found video URL via HTTP: {video_url}")
+                            return {
+                                "download_url": video_url,
+                                "title": f"Instagram Video - {shortcode}",
+                            }
+                    
+                    # If specific patterns fail, look for any MP4 URL
+                    mp4_match = re.search(r'(https?://[^"\']+\.mp4[^"\'\s]*)', html)
+                    if mp4_match:
+                        video_url = mp4_match.group(1)
+                        logger.info(f"Found MP4 URL via HTTP: {video_url}")
+                        return {
+                            "download_url": video_url,
+                            "title": f"Instagram Video - {shortcode}",
+                        }
+                    
+                    # If GraphQL URL, parse the JSON response
+                    if "graphql" in target_url and "query_hash" in target_url:
+                        try:
+                            data = json.loads(html)
+                            media = data.get("data", {}).get("shortcode_media", {})
+                            if media.get("is_video") and media.get("video_url"):
+                                video_url = media.get("video_url")
+                                logger.info(f"Found video URL via GraphQL: {video_url}")
+                                return {
+                                    "download_url": video_url,
+                                    "title": f"Instagram Video - {shortcode}",
+                                    "username": media.get("owner", {}).get("username", ""),
+                                    "caption": media.get("edge_media_to_caption", {}).get("edges", [{}])[0].get("node", {}).get("text", "")
+                                }
+                        except json.JSONDecodeError:
+                            logger.warning("Failed to parse GraphQL response as JSON")
+                    
+                    # If direct video URL is not found, look for any media URL
+                    media_url_match = re.search(r'<img[^>]*src="([^"]*)"[^>]*class="[^"]*EmbeddedMediaImage', html)
+                    if media_url_match:
+                        media_url = media_url_match.group(1)
+                        logger.info(f"Found media URL: {media_url}")
+                        return {
+                            "download_url": media_url,
+                            "title": f"Instagram Media - {shortcode}",
+                        }
+                    
+                    logger.info(f"No media URLs found in page: {target_url}")
+                
+            except Exception as e:
+                logger.warning(f"Error with URL {target_url}: {e}")
+                continue  # Try the next URL
+            
+        # If all URLs failed
+        return {"error": "Could not find video URL via direct HTTP requests"}
+            
+    except Exception as e:
+        logger.exception(f"Error with all HTTP methods: {e}")
+        return {"error": f"HTTP request error: {str(e)}"}
+
+# Method 3: Web proxy method (use Instagram through a proxy service)
+def get_video_url_proxy(shortcode):
+    """Get video URL through a proxy service."""
+    try:
+        # Try different proxy services that are likely to work without restrictions
+        proxy_services = [
+            f"https://imginn.org/reels/{shortcode}/",
+            f"https://ig.dumpor.com/view?q={shortcode}",
+            f"https://snapinsta.app/api/ajaxSearch?q=https://www.instagram.com/reel/{shortcode}",
+            f"https://instagram.fcaptureapps.com/api/reel?url=https://www.instagram.com/reel/{shortcode}"
+        ]
+        
+        # Prepare headers that mimic a real browser
+        headers = {
+            'User-Agent': random.choice(USER_AGENTS),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://www.google.com/',
+            'DNT': '1',
+            'Sec-GPC': '1'
+        }
+        
+        # Try each proxy service until one works
+        for proxy_url in proxy_services:
+            try:
+                logger.info(f"Attempting to use proxy service: {proxy_url}")
+                
+                req = Request(proxy_url, headers=headers)
+                with urlopen(req, timeout=10) as response:
+                    html = response.read().decode('utf-8')
+                    
+                    # Different patterns to look for video URLs in the response
+                    patterns = [
+                        r'<video[^>]*>\s*<source src="([^"]*)"',  # Standard video tag
+                        r'<video[^>]*src="([^"]*)"',  # Video with src attribute
+                        r'data-video-url="([^"]*)"',  # Data attribute
+                        r'"video_url":"([^"]*)"',     # JSON format
+                        r'"contentUrl":"([^"]*)"',    # JSON-LD format
+                        r'background-video-link="([^"]*)"',  # Custom attribute
+                        r'<a[^>]*href="([^"]*\.mp4[^"]*)"'  # Direct link to MP4
+                    ]
+                    
+                    # Try each pattern
+                    for pattern in patterns:
+                        video_url_match = re.search(pattern, html)
+                        if video_url_match:
+                            video_url = video_url_match.group(1)
+                            # Unescape any escaped characters
+                            video_url = video_url.replace('\\/', '/').replace('\\u0026', '&')
+                            
+                            logger.info(f"Found video URL via proxy: {video_url}")
+                            return {
+                                "download_url": video_url,
+                                "title": f"Instagram Video - {shortcode}",
+                            }
+                
+                # Look for direct links to MP4 files (sometimes they're in JSON)
+                mp4_match = re.search(r'(https?://[^"\']+\.mp4[^"\'\s]*)', html)
+                if mp4_match:
+                    video_url = mp4_match.group(1)
+                    logger.info(f"Found direct MP4 URL: {video_url}")
+                    return {
+                        "download_url": video_url,
+                        "title": f"Instagram Video - {shortcode}",
+                    }
+                
+                logger.info(f"No video URLs found in proxy page: {proxy_url}")
+                
+            except Exception as e:
+                logger.warning(f"Error with proxy {proxy_url}: {e}")
+                continue  # Try the next proxy
+        
+        # If all proxies failed
+        return {"error": "Could not find video URL through any proxy service"}
+            
+    except Exception as e:
+        logger.exception(f"Error with all proxy methods: {e}")
+        return {"error": f"Proxy service error: {str(e)}"}
+
+# Method 4: API Aggregator (Combined approach with multiple services)
+def get_video_url_aggregator(url, shortcode):
+    """Combined approach using multiple third-party API services."""
+    try:
+        # Different API services that can extract Instagram videos
+        api_services = [
+            {
+                "url": f"https://api.savefrom.net/api/convert?url=https://www.instagram.com/reel/{shortcode}/",
+                "headers": {
+                    "User-Agent": random.choice(USER_AGENTS),
+                    "Accept": "application/json",
+                    "Origin": "https://savefrom.net",
+                    "Referer": "https://savefrom.net/"
+                },
+                "json_path": ["url", "hd"]  # Path to extract URL from JSON response
+            },
+            {
+                "url": f"https://www.save-insta.com/api/ajaxSearch",
+                "method": "POST",
+                "data": f"q=https://www.instagram.com/reel/{shortcode}/",
+                "headers": {
+                    "User-Agent": random.choice(USER_AGENTS),
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "*/*",
+                    "Origin": "https://www.save-insta.com",
+                    "Referer": "https://www.save-insta.com/"
+                },
+                "regex": r'<a[^>]*href="([^"]*\.mp4[^"]*)"'  # Regex to find URL in HTML response
+            },
+            {
+                "url": f"https://saveinsta.app/core/ajax.php",
+                "method": "POST",
+                "data": f"url=https://www.instagram.com/reel/{shortcode}/&lang=en",
+                "headers": {
+                    "User-Agent": random.choice(USER_AGENTS),
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "Accept": "application/json, text/javascript, */*",
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Origin": "https://saveinsta.app",
+                    "Referer": "https://saveinsta.app/en/instagram-reels-downloader"
+                },
+                "json_path": ["links", 0, "url"]  # Path to extract URL from JSON response
+            }
+        ]
+        
+        # Try each API service
+        for service in api_services:
+            try:
+                time.sleep(random.uniform(0.5, 1.5))  # Random delay
+                
+                logger.info(f"Trying aggregator service: {service['url']}")
+                
+                # Create request
+                if service.get("method") == "POST":
+                    req = Request(
+                        service["url"], 
+                        data=service.get("data", "").encode('utf-8'),
+                        headers=service.get("headers", {})
+                    )
+                else:
+                    req = Request(service["url"], headers=service.get("headers", {}))
+                
+                # Send request and get response
+                with urlopen(req, timeout=10) as response:
+                    response_data = response.read().decode('utf-8')
+                    
+                    # Parse response based on service type
+                    if "json_path" in service:
+                        try:
+                            # Try to parse as JSON
+                            data = json.loads(response_data)
+                            
+                            # Navigate through JSON path to find the URL
+                            value = data
+                            for key in service["json_path"]:
+                                if isinstance(key, int):
+                                    if isinstance(value, list) and len(value) > key:
+                                        value = value[key]
+                                    else:
+                                        value = None
+                                        break
+                                else:
+                                    value = value.get(key)
+                                    if value is None:
+                                        break
+                            
+                            if value and isinstance(value, str) and (value.startswith("http") or value.startswith("//")):
+                                # Ensure URL is properly formatted
+                                if value.startswith("//"):
+                                    value = "https:" + value
+                                
+                                logger.info(f"Found video URL via aggregator (JSON): {value}")
+                                return {
+                                    "download_url": value,
+                                    "title": f"Instagram Video - {shortcode}",
+                                }
+                        except json.JSONDecodeError:
+                            logger.warning(f"Failed to parse response as JSON from {service['url']}")
+                    
+                    # If regex pattern is provided, use it to search the response
+                    if "regex" in service:
+                        match = re.search(service["regex"], response_data)
+                        if match:
+                            video_url = match.group(1)
+                            if video_url.startswith("//"):
+                                video_url = "https:" + video_url
+                                
+                            logger.info(f"Found video URL via aggregator (regex): {video_url}")
+                            return {
+                                "download_url": video_url,
+                                "title": f"Instagram Video - {shortcode}",
+                            }
+                    
+                    # Generic MP4 URL finder
+                    mp4_match = re.search(r'(https?://[^"\']+\.mp4[^"\'\s]*)', response_data)
+                    if mp4_match:
+                        video_url = mp4_match.group(1)
+                        logger.info(f"Found MP4 URL via aggregator: {video_url}")
+                        return {
+                            "download_url": video_url,
+                            "title": f"Instagram Video - {shortcode}",
+                        }
+                    
+                    logger.info(f"No video URL found in response from {service['url']}")
+                
+            except Exception as e:
+                logger.warning(f"Error with aggregator service {service['url']}: {e}")
+                continue  # Try next service
+        
+        # If all services failed
+        return {"error": "Could not extract video URL through aggregator services"}
+        
+    except Exception as e:
+        logger.exception(f"Error with aggregator method: {e}")
+        return {"error": f"Aggregator service error: {str(e)}"}
+
 @app.route("/api/download", methods=["POST"])
 def download():
+    """API endpoint to process Instagram video download requests."""
     try:
         # Log the incoming request
         logger.debug(f"Received request: {request.get_data()}")
@@ -28,99 +440,67 @@ def download():
             return jsonify({"error": "No URL provided"}), 400
             
         logger.info(f"Processing URL: {url}")
-
-        import os
-        import random
         
-        # Use a simple approach that focuses on making a single strong attempt
-        # Avoid complex logic that might introduce more points of failure
+        # Extract the shortcode from the URL
+        shortcode = extract_shortcode(url)
+        if not shortcode:
+            logger.error(f"Invalid Instagram URL: {url}")
+            return jsonify({"error": "Invalid Instagram URL format"}), 400
         
-        try:
-            # Use a randomized user agent
-            user_agents = [
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15",
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36",
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1"
-            ]
-            
-            # Construct a robust yt-dlp command with the best options for Instagram
-            yt_dlp_command = [
-                "yt-dlp",
-                "-v",
-                "--no-check-certificate",
-                "--ignore-errors",
-                "--user-agent", random.choice(user_agents),
-                "--referer", "https://www.instagram.com/",
-                "--force-ipv4",
-                "--socket-timeout", "30",
-                "--retries", "10",
-                "--fragment-retries", "10",
-                "--sleep-requests", "1",
-                "--sleep-interval", "1", 
-                "--max-sleep-interval", "5",
-                "--geo-bypass",
-                "-j",
-                url
-            ]
-            
-            # Log the command
-            logger.info(f"Running yt-dlp with enhanced options")
-            
-            # Execute the command
-            result = subprocess.run(
-                yt_dlp_command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-        except Exception as e:
-            logger.exception(f"Error in extraction process: {e}")
-            # Create a result object with similar properties to subprocess.run result
-            class DummyResult:
-                def __init__(self, returncode, stdout, stderr):
-                    self.returncode = returncode
-                    self.stdout = stdout
-                    self.stderr = stderr
-                    
-            result = DummyResult(1, '', f"Extraction error: {str(e)}")
+        logger.info(f"Extracted shortcode: {shortcode}")
         
-        # Log the command output (both stdout and stderr)
-        logger.debug(f"yt-dlp stdout: {result.stdout}")
-        logger.debug(f"yt-dlp stderr: {result.stderr}")
-        logger.debug(f"yt-dlp return code: {result.returncode}")
-
-        if result.returncode != 0:
-            error_message = result.stderr or "Unknown error"
-            logger.error(f"yt-dlp failed: {error_message}")
-            return jsonify({"error": f"Failed to fetch video: {error_message}"}), 400
-
-        try:
-            video_info = json.loads(result.stdout)
-            logger.debug(f"Parsed video info: {video_info.keys()}")
+        # We'll use multiple approaches and return the first successful one
+        logger.info("Starting multi-method extraction process")
+        
+        # Store errors for debugging
+        errors = {}
+        
+        # Method 2: Direct HTTP (try this first as it's the most direct)
+        logger.info("Trying Method 2: Direct HTTP request")
+        result2 = get_video_url_http(url, shortcode)
+        if "download_url" in result2:
+            logger.info("Method 2 successful")
+            return jsonify(result2)
+        else:
+            errors["http"] = result2.get("error")
+        
+        # Method 4: API Aggregator (often successful and reliable)
+        logger.info("Trying Method 4: API Aggregator")
+        result4 = get_video_url_aggregator(url, shortcode)
+        if "download_url" in result4:
+            logger.info("Method 4 successful")
+            return jsonify(result4)
+        else:
+            errors["aggregator"] = result4.get("error")
+        
+        # Method 1: Using instaloader (can be rate-limited)
+        logger.info("Trying Method 1: Instaloader")
+        result1 = get_video_url_instaloader(shortcode)
+        if "download_url" in result1:
+            logger.info("Method 1 successful")
+            return jsonify(result1)
+        else:
+            errors["instaloader"] = result1.get("error")
             
-            if "url" not in video_info:
-                logger.error("No URL found in video info")
-                formats = video_info.get("formats", [])
-                if formats:
-                    # Try to find the best quality format
-                    best_format = max(formats, key=lambda x: x.get("height", 0) if x.get("height") else 0)
-                    download_url = best_format.get("url")
-                    logger.info(f"Found URL in formats: {download_url[:50]}...")
-                else:
-                    logger.error("No formats found in video info")
-                    return jsonify({"error": "Could not extract download URL"}), 400
-            else:
-                download_url = video_info["url"]
-                logger.info(f"Found URL in video info: {download_url[:50]}...")
-                
-            return jsonify({
-                "download_url": download_url,
-                "title": video_info.get("title", "Instagram Video")
-            })
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
-            return jsonify({"error": f"Failed to parse video info: {e}"}), 500
+        # Method 3: Proxy service (last resort)
+        logger.info("Trying Method 3: Proxy service")
+        result3 = get_video_url_proxy(shortcode)
+        if "download_url" in result3:
+            logger.info("Method 3 successful")
+            return jsonify(result3)
+        else:
+            errors["proxy"] = result3.get("error")
+            
+        # If all methods failed, return error with detailed info
+        logger.error("All extraction methods failed")
+        error_msg = "Failed to download Instagram video. Instagram may be blocking our requests. "
+        
+        # Add detailed error info
+        for method, error in errors.items():
+            if error:
+                error_msg += f"{method.capitalize()}: {error}. "
+        
+        return jsonify({"error": error_msg}), 400
 
     except Exception as e:
         logger.exception(f"Unexpected error: {e}")
