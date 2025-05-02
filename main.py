@@ -29,143 +29,51 @@ def download():
             
         logger.info(f"Processing URL: {url}")
 
-        import tempfile
         import os
-        import re
         import random
-        import base64
-        import requests
-        from urllib.parse import urlparse, parse_qs
+        
+        # Use a simple approach that focuses on making a single strong attempt
+        # Avoid complex logic that might introduce more points of failure
         
         try:
-            # Try to extract Instagram post ID from URL
-            logger.info("Extracting Instagram post ID from URL")
-            post_id = None
-            url_parsed = urlparse(url)
+            # Use a randomized user agent
+            user_agents = [
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15",
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36",
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1"
+            ]
             
-            # Standard Instagram URL pattern
-            if url_parsed.netloc in ['instagram.com', 'www.instagram.com']:
-                # Extract post ID from path
-                path_match = re.search(r'/(p|reel|tv)/([A-Za-z0-9_-]+)', url_parsed.path)
-                if path_match:
-                    post_id = path_match.group(2)
-                    logger.info(f"Extracted post ID: {post_id}")
-                
-                # Sometimes the ID is in the query
-                if not post_id and 'id=' in url_parsed.query:
-                    query_params = parse_qs(url_parsed.query)
-                    if 'id' in query_params and query_params['id']:
-                        post_id = query_params['id'][0]
-                        logger.info(f"Extracted post ID from query: {post_id}")
+            # Construct a robust yt-dlp command with the best options for Instagram
+            yt_dlp_command = [
+                "yt-dlp",
+                "-v",
+                "--no-check-certificate",
+                "--ignore-errors",
+                "--user-agent", random.choice(user_agents),
+                "--referer", "https://www.instagram.com/",
+                "--force-ipv4",
+                "--socket-timeout", "30",
+                "--retries", "10",
+                "--fragment-retries", "10",
+                "--sleep-requests", "1",
+                "--sleep-interval", "1", 
+                "--max-sleep-interval", "5",
+                "--geo-bypass",
+                "-j",
+                url
+            ]
             
-            # If we have a post ID, try multiple methods to fetch the content
-            if post_id:
-                logger.info(f"Trying multiple methods to download content for post ID: {post_id}")
-                
-                # Method 1: yt-dlp with additional request headers
-                logger.info("Method 1: Using yt-dlp with enhanced headers")
-                
-                # Rotate between common user agents
-                user_agents = [
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15",
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36",
-                    "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1"
-                ]
-                user_agent = random.choice(user_agents)
-                
-                # Construct yt-dlp command with optimized options
-                yt_dlp_command = [
-                    "yt-dlp",
-                    "-v",  # Verbose output for debugging
-                    "--no-check-certificate",
-                    "--user-agent", user_agent,
-                    "--add-header", f"Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                    "--add-header", f"Accept-Language: en-US,en;q=0.5",
-                    "--add-header", f"Sec-Fetch-Dest: document",
-                    "--add-header", f"Sec-Fetch-Mode: navigate",
-                    "--add-header", f"Sec-Fetch-Site: none",
-                    "--add-header", f"Sec-Fetch-User: ?1",
-                    "--force-ipv4",  # Try to use IPv4 to avoid some restrictions
-                    "--socket-timeout", "15",  # Increase timeout for better reliability
-                    "--extractor-retries", "3",  # Retry extraction
-                    "--mark-watched",  # Typically helps with some sites
-                    "-j",  # Output as JSON
-                    url
-                ]
-                
-                # Execute yt-dlp command
-                logger.info(f"Running command with random user agent")
-                result = subprocess.run(
-                    yt_dlp_command,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-                
-                # Check if Method 1 worked
-                if result.returncode == 0 and result.stdout:
-                    logger.info("Method 1 successful!")
-                    # Process successful result normally
-                else:
-                    logger.warning("Method 1 failed, trying Method 2...")
-                    
-                    # Method 2: Try a different extraction approach with yt-dlp
-                    logger.info("Method 2: Alternative extraction approach")
-                    
-                    # Create a modified URL with additional parameters
-                    modified_url = f"https://www.instagram.com/reel/{post_id}/?igsh=randomstring"
-                    
-                    # Try with different options
-                    yt_dlp_command2 = [
-                        "yt-dlp",
-                        "--ignore-errors",
-                        "--no-playlist",
-                        "--no-check-certificate",
-                        "--referer", "https://www.instagram.com/",
-                        "--user-agent", user_agents[0],  # Use a stable user agent for second attempt
-                        "--extract-audio",
-                        "--audio-format", "mp3",
-                        "--no-exec",  # Don't actually download, just extract info
-                        "-j",
-                        modified_url
-                    ]
-                    
-                    # Execute Method 2
-                    logger.info(f"Trying Method 2 with modified URL: {modified_url}")
-                    result = subprocess.run(
-                        yt_dlp_command2,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True
-                    )
-            else:
-                # If we couldn't extract a post ID, proceed with standard method
-                logger.warning("Could not extract post ID, proceeding with standard method")
-                
-                # Construct yt-dlp command with appropriate options
-                yt_dlp_command = [
-                    "yt-dlp", 
-                    "-v",  # Verbose output for debugging
-                    "--no-check-certificate",
-                    "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                    "--force-ipv4",  # Try to use IPv4 to avoid some restrictions
-                    "--socket-timeout", "30",  # Increase timeout for better reliability
-                    "-j",  # Output as JSON
-                    url
-                ]
-                
-                # Add rate limiting protection
-                yt_dlp_command.extend(["--sleep-interval", "2", "--max-sleep-interval", "5"])
-                
-                # Execute yt-dlp command
-                logger.info(f"Running standard command")
-                result = subprocess.run(
-                    yt_dlp_command,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
+            # Log the command
+            logger.info(f"Running yt-dlp with enhanced options")
+            
+            # Execute the command
+            result = subprocess.run(
+                yt_dlp_command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
         except Exception as e:
             logger.exception(f"Error in extraction process: {e}")
             # Create a result object with similar properties to subprocess.run result
