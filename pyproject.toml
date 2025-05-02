@@ -11,4 +11,5 @@ dependencies = [
     "gunicorn>=23.0.0",
     "psycopg2-binary>=2.9.10",
     "yt-dlp>=2025.4.30",
+    "trafilatura>=2.0.0",
 ]

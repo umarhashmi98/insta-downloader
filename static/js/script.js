@@ -43,8 +43,19 @@ document.addEventListener('DOMContentLoaded', function() {
         submitBtn.disabled = true;
         
         try {
-            // Call the API
-            const response = await fetch('/api/download', {
+            // Call the API - log the URL for debugging
+            console.log("Submitting URL:", instagramUrl);
+            
+            // Check which API endpoint to use
+            let apiEndpoint = '/api/download';
+            
+            // If we're deployed on Railway, use the deployed API
+            if (window.location.hostname !== 'localhost' && !window.location.hostname.includes('replit')) {
+                apiEndpoint = 'https://insta99-production.up.railway.app/api/download';
+                console.log("Using Railway API endpoint");
+            }
+            
+            const response = await fetch(apiEndpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -52,7 +63,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 body: JSON.stringify({ url: instagramUrl }),
             });
             
-            const data = await response.json();
+            console.log("API Response status:", response.status);
+            
+            // Log the raw response for debugging
+            const responseText = await response.text();
+            console.log("API Raw Response:", responseText);
+            
+            // Parse the JSON response
+            let data;
+            try {
+                data = JSON.parse(responseText);
+                console.log("Parsed JSON data:", data);
+            } catch (e) {
+                console.error("Failed to parse JSON:", e);
+                throw new Error("Invalid JSON response from server");
+            }
             
             // Hide loader
             loader.classList.add('d-none');
