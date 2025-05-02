@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instagram Video Downloader</title>
+    <!-- Replit-themed Bootstrap CSS -->
+    <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="text-center mb-0">
+                            <i class="fab fa-instagram me-2"></i>Instagram Video Downloader
+                        </h2>
+                    </div>
+                    <div class="card-body">
+                        <form id="downloadForm">
+                            <div class="mb-3">
+                                <label for="instagramUrl" class="form-label">Instagram Video URL</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">
+                                        <i class="fas fa-link"></i>
+                                    </span>
+                                    <input type="url" class="form-control" id="instagramUrl" 
+                                           placeholder="https://www.instagram.com/p/..." required>
+                                    <button type="submit" class="btn btn-primary" id="submitBtn">
+                                        <i class="fas fa-download me-2"></i>Get Video
+                                    </button>
+                                </div>
+                                <div class="form-text">Paste the URL of an Instagram post or reel</div>
+                            </div>
+                        </form>
+
+                        <!-- Loader -->
+                        <div id="loader" class="text-center py-4 d-none">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Extracting video link...</p>
+                        </div>
+
+                        <!-- Error messages -->
+                        <div id="errorContainer" class="alert alert-danger d-none" role="alert">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <span id="errorMessage"></span>
+                        </div>
+
+                        <!-- Results container -->
+                        <div id="resultsContainer" class="d-none mt-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0" id="videoTitle">Video Title</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3" id="thumbnailContainer">
+                                        <!-- Thumbnail will be inserted here if available -->
+                                    </div>
+                                    <div class="d-grid gap-2">
+                                        <a href="#" id="downloadBtn" class="btn btn-success" target="_blank">
+                                            <i class="fas fa-download me-2"></i>Download Video
+                                        </a>
+                                        <button type="button" id="copyLinkBtn" class="btn btn-outline-info">
+                                            <i class="fas fa-copy me-2"></i>Copy Download Link
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer text-center text-muted">
+                        <small>Powered by <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" class="text-decoration-none">yt-dlp</a></small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast notification for copy success -->
+    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 5">
+        <div id="copyToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <i class="fas fa-check-circle text-success me-2"></i>
+                <strong class="me-auto">Success</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body">
+                Download link copied to clipboard!
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Custom JS -->
+    <script src="/static/js/script.js"></script>
+</body>
+</html>

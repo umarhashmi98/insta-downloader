@@ -59,27 +59,15 @@ document.addEventListener('DOMContentLoaded', function() {
             submitBtn.disabled = false;
             
             // Handle the API response
-            if (data.success) {
+            if (data.download_url) {
                 // Show results
-                videoTitle.textContent = data.title || 'Instagram Video';
+                videoTitle.textContent = 'Instagram Video';
                 
                 // Set download link
                 downloadBtn.href = data.download_url;
                 
-                // Display thumbnail if available
-                if (data.thumbnail) {
-                    const imgElement = document.createElement('img');
-                    imgElement.src = data.thumbnail;
-                    imgElement.alt = data.title || 'Video thumbnail';
-                    imgElement.className = 'img-fluid';
-                    
-                    // Clear and add the thumbnail image
-                    thumbnailContainer.innerHTML = '';
-                    thumbnailContainer.appendChild(imgElement);
-                } else {
-                    // No thumbnail available
-                    thumbnailContainer.innerHTML = '<div class="alert alert-info">No thumbnail available</div>';
-                }
+                // No thumbnail available with simplified API
+                thumbnailContainer.innerHTML = '<div class="alert alert-info">Video ready for download</div>';
                 
                 // Show results container
                 resultsContainer.classList.remove('d-none');
