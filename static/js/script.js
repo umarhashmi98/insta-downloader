@@ -55,12 +55,32 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log("Using Railway API endpoint");
             }
             
+            // Get cookies if provided
+            const sessionidInput = document.getElementById('sessionid');
+            const csrftokenInput = document.getElementById('csrftoken');
+            const dsUserIdInput = document.getElementById('ds_user_id');
+            
+            // Prepare payload
+            const payload = { 
+                url: instagramUrl 
+            };
+            
+            // Add cookies if provided (at least sessionid)
+            if (sessionidInput && sessionidInput.value.trim()) {
+                payload.cookies = {
+                    sessionid: sessionidInput.value.trim(),
+                    csrftoken: csrftokenInput ? csrftokenInput.value.trim() : '',
+                    ds_user_id: dsUserIdInput ? dsUserIdInput.value.trim() : ''
+                };
+                console.log("Adding Instagram cookies to request");
+            }
+            
             const response = await fetch(apiEndpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ url: instagramUrl }),
+                body: JSON.stringify(payload),
             });
             
             console.log("API Response status:", response.status);
@@ -148,6 +168,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // Check if path exists and matches Instagram post pattern
+            // Also allow URLs with query parameters
             const path = parsedUrl.pathname;
             const instagramRegex = /^\/(p|reel|tv)\/[a-zA-Z0-9_-]+\/?$/;
             
@@ -156,5 +177,15 @@ document.addEventListener('DOMContentLoaded', function() {
             // Invalid URL format
             return false;
         }
+    }
+    
+    // Add cookie input field toggle
+    const showCookiesBtn = document.getElementById('show-cookies-btn');
+    const cookieSection = document.getElementById('cookie-section');
+    
+    if (showCookiesBtn && cookieSection) {
+        showCookiesBtn.addEventListener('click', function() {
+            cookieSection.classList.toggle('d-none');
+        });
     }
 });
