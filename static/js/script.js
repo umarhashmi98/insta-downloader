@@ -179,12 +179,37 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
+    // Add direct download button handler
+    const directMethodBtn = document.getElementById('direct-method-btn');
+    
+    if (directMethodBtn) {
+        directMethodBtn.addEventListener('click', function() {
+            // Validate URL
+            const instagramUrl = document.getElementById('instagramUrl').value.trim();
+            if (!instagramUrl) {
+                showError('Please enter an Instagram URL first');
+                return;
+            }
+            
+            if (!isValidInstagramUrl(instagramUrl)) {
+                showError('Please enter a valid Instagram URL');
+                return;
+            }
+            
+            // Show loader
+            loader.classList.remove('d-none');
+            
+            // Call the API endpoint
+            callApiDownload(instagramUrl);
+        });
+    }
+    
     // Add alternative method button handler
     const alternativeMethodBtn = document.getElementById('alternative-method-btn');
     
     if (alternativeMethodBtn) {
         alternativeMethodBtn.addEventListener('click', function() {
-            // If first method failed, try alternative method
+            // Validate URL
             const instagramUrl = document.getElementById('instagramUrl').value.trim();
             if (!instagramUrl) {
                 showError('Please enter an Instagram URL first');
@@ -194,12 +219,72 @@ document.addEventListener('DOMContentLoaded', function() {
             // Create modified URL for alternative method
             const alternativeUrl = createAlternativeUrl(instagramUrl);
             
-            // Show notification
-            showError('Trying alternative method...');
+            // Show notification in the error container (reusing it for info)
+            errorMessage.textContent = 'Opening reliable third-party downloader...';
+            errorContainer.classList.remove('d-none');
+            errorContainer.classList.remove('alert-danger');
+            errorContainer.classList.add('alert-info');
             
             // Try the download with alternative method
             tryAlternativeDownload(alternativeUrl);
         });
+    }
+    
+    // Function to call the API download endpoint
+    async function callApiDownload(url) {
+        try {
+            // Check which API endpoint to use
+            let apiEndpoint = '/api/download';
+            
+            // If we're deployed on Railway, use the deployed API
+            if (window.location.hostname !== 'localhost' && !window.location.hostname.includes('replit')) {
+                apiEndpoint = 'https://insta99-production.up.railway.app/api/download';
+                console.log("Using Railway API endpoint");
+            }
+            
+            // Make the API request
+            const response = await fetch(apiEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ url: url }),
+            });
+            
+            console.log("API Response status:", response.status);
+            
+            // Parse the response
+            const responseText = await response.text();
+            console.log("API Response:", responseText);
+            
+            let data;
+            try {
+                data = JSON.parse(responseText);
+            } catch (e) {
+                console.error("Failed to parse JSON response:", e);
+                throw new Error("Invalid response from server");
+            }
+            
+            // Hide loader
+            loader.classList.add('d-none');
+            
+            // Check if download URL was found
+            if (data.download_url) {
+                // Show success UI
+                videoTitle.textContent = data.title || "Instagram Video";
+                downloadBtn.href = data.download_url;
+                thumbnailContainer.innerHTML = '<div class="alert alert-success">Video ready for download!</div>';
+                resultsContainer.classList.remove('d-none');
+            } else {
+                // Show error and suggest using alternative method
+                showError((data.error || "Failed to extract video") + 
+                    ". Try clicking the 'Use Reliable Method' button instead.");
+            }
+        } catch (error) {
+            console.error("Error:", error);
+            loader.classList.add('d-none');
+            showError("An error occurred. Try the 'Use Reliable Method' button instead.");
+        }
     }
     
     // Function to create alternative URL
@@ -214,17 +299,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 const postId = matches[2];
                 // Use multiple alternative Instagram downloaders
                 const services = [
-                    `https://www.ddinstagram.com/reel/${postId}`,
-                    `https://www.instagramsave.com/instagram-reels-downloader.php?url=https://www.instagram.com/reel/${postId}`,
-                    `https://sssinstagram.com/reel/${postId}`
+                    `https://saveinsta.app/en/instagram-reels-downloader#${postId}`,
+                    `https://sssinstagram.com/reel/${postId}`,
+                    `https://www.instagramsave.com/instagram-reels-downloader.php?url=https://www.instagram.com/reel/${postId}`
                 ];
                 
                 return services[0]; // Return first alternative for now
             } else {
-                return url; // fallback to original URL
+                return `https://saveinsta.app/en/instagram-reels-downloader#${encodeURIComponent(url)}`;
             }
         } catch {
-            return url; // fallback to original URL
+            // If URL parsing fails, send to a service that can handle any URL
+            return `https://saveinsta.app/en`;
         }
     }
     

@@ -25,8 +25,8 @@
                     <!-- Info alert -->
                     <div class="alert alert-info m-3">
                         <i class="fas fa-info-circle me-1"></i>
-                        <strong>Instagram Downloader:</strong> Paste any Instagram post or reel URL below to download the video.
-                        No login required!
+                        <strong>Instagram Video Downloader:</strong> Paste any Instagram post or reel URL below and click "Direct Download" 
+                        or "Use Reliable Method" to download videos without login.
                     </div>
                     
                     <div class="card-body">
@@ -39,14 +39,17 @@
                                     </span>
                                     <input type="url" class="form-control" id="instagramUrl" 
                                            placeholder="https://www.instagram.com/p/..." required>
-                                    <button type="submit" class="btn btn-primary" id="submitBtn">
-                                        <i class="fas fa-download me-2"></i>Get Video
+                                    <button type="submit" class="btn btn-outline-secondary d-none" id="submitBtn">
+                                        <i class="fas fa-search me-2"></i>Search
                                     </button>
                                 </div>
                                 <div class="form-text">Paste the URL of an Instagram post or reel</div>
-                                <div class="mt-2">
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="alternative-method-btn">
-                                        <i class="fas fa-exchange-alt me-1"></i> Try Alternative Method
+                                <div class="mt-2 d-flex justify-content-between">
+                                    <button type="button" class="btn btn-sm btn-success me-1" id="direct-method-btn">
+                                        <i class="fas fa-bolt me-1"></i> Direct Download
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-primary" id="alternative-method-btn">
+                                        <i class="fas fa-shield-alt me-1"></i> Use Reliable Method
                                     </button>
                                 </div>
                             </div>
