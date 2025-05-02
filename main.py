@@ -18,7 +18,11 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
-# Initialize instaloader instance
+# Get Instagram cookies from environment variables
+INSTAGRAM_SESSIONID = os.environ.get('INSTAGRAM_SESSIONID', '')
+INSTAGRAM_CSRFTOKEN = os.environ.get('INSTAGRAM_CSRFTOKEN', '')
+
+# Initialize instaloader instance with authentication if cookies are available
 L = instaloader.Instaloader(
     download_pictures=True,
     download_videos=True,
@@ -29,6 +33,18 @@ L = instaloader.Instaloader(
     compress_json=False,
     quiet=False,
 )
+
+# Add Instagram cookies if available
+if INSTAGRAM_SESSIONID and INSTAGRAM_CSRFTOKEN:
+    logger.info("Instagram cookies found, initializing with authenticated session")
+    # Create session and add cookies
+    L.context._session.cookies.set("sessionid", INSTAGRAM_SESSIONID, domain=".instagram.com")
+    L.context._session.cookies.set("csrftoken", INSTAGRAM_CSRFTOKEN, domain=".instagram.com")
+    # Additional metadata to make it look like a real browser session
+    L.context._session.cookies.set("ig_did", "D822845C-AA99-4A5F-84F9-5AB0B56E8D32", domain=".instagram.com")
+    L.context._session.cookies.set("mid", "YWVW7AALAAGfSR76nq-mVxsPw4F6", domain=".instagram.com")
+else:
+    logger.info("No Instagram cookies found, will try to proceed without authentication")
 
 # Configure user agents for requests
 USER_AGENTS = [
@@ -83,19 +99,21 @@ def get_video_url_instaloader(shortcode):
         logger.exception(f"Error using instaloader: {e}")
         return {"error": f"Error extracting video URL: {str(e)}"}
 
-# Method 2: Direct HTTP request with custom headers and multiple approaches
+# Method 2: Direct HTTP request with Instagram cookies
 def get_video_url_http(url, shortcode):
-    """Get video URL using direct HTTP request with multiple approaches."""
+    """Get video URL using direct HTTP request with Instagram cookies."""
     try:
         # Try multiple URLs that might contain the video
         urls_to_try = [
-            f"https://www.instagram.com/p/{shortcode}/embed/",  # Embed page often works without login
-            f"https://www.instagram.com/p/{shortcode}/embed/captioned/",  # Alternate embed format
-            f"https://www.instagram.com/reel/{shortcode}/embed/",  # For reels specific embed
-            f"https://www.instagram.com/graphql/query/?query_hash=b3055c01b4b222b8a47dc12b090e4e64&variables=%7B%22shortcode%22:%22{shortcode}%22%7D"  # GraphQL API
+            f"https://www.instagram.com/p/{shortcode}/?__a=1&__d=dis",  # API access with cookies
+            f"https://www.instagram.com/reel/{shortcode}/?__a=1&__d=dis",  # Reel API access
+            f"https://www.instagram.com/api/v1/media/{shortcode}/info/",  # Media info API
+            f"https://www.instagram.com/graphql/query/?query_hash=b3055c01b4b222b8a47dc12b090e4e64&variables=%7B%22shortcode%22:%22{shortcode}%22%7D",  # GraphQL API
+            f"https://www.instagram.com/p/{shortcode}/",  # Regular page
+            f"https://www.instagram.com/reel/{shortcode}/"  # Reel page
         ]
         
-        # Rotate different user agent strings to avoid detection
+        # Create headers with cookies from the environment
         headers = {
             'User-Agent': random.choice(USER_AGENTS),
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -108,8 +126,13 @@ def get_video_url_http(url, shortcode):
             'Sec-Fetch-Site': 'none',
             'Cache-Control': 'max-age=0',
             'TE': 'trailers',
-            'Referer': 'https://www.google.com/',  # Make it look like we came from Google
+            'Referer': 'https://www.instagram.com/',  # Make it look like we came from Instagram
         }
+        
+        # Add cookies if available
+        if INSTAGRAM_SESSIONID and INSTAGRAM_CSRFTOKEN:
+            headers['Cookie'] = f"sessionid={INSTAGRAM_SESSIONID}; csrftoken={INSTAGRAM_CSRFTOKEN}; ds_user_id=123456789; ig_did=D822845C-AA99-4A5F-84F9-5AB0B56E8D32; mid=YWVW7AALAAGfSR76nq-mVxsPw4F6"
+            headers['X-CSRFToken'] = INSTAGRAM_CSRFTOKEN
         
         # Try different delaying strategies between requests to avoid rate limits
         delay_strategies = [0.5, 1, 1.5, 2]
