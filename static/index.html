@@ -22,11 +22,11 @@
                         </h2>
                     </div>
                     
-                    <!-- Error Alert for Rate Limiting -->
-                    <div class="alert alert-warning m-3">
-                        <i class="fas fa-exclamation-triangle me-1"></i>
-                        <strong>Authentication Required:</strong> Instagram has rate limiting in place. For reliable downloads, 
-                        you'll need to provide your Instagram cookies (click the "Advanced" button below).
+                    <!-- Info alert -->
+                    <div class="alert alert-info m-3">
+                        <i class="fas fa-info-circle me-1"></i>
+                        <strong>Instagram Downloader:</strong> Paste any Instagram post or reel URL below to download the video.
+                        No login required!
                     </div>
                     
                     <div class="card-body">
@@ -45,38 +45,9 @@
                                 </div>
                                 <div class="form-text">Paste the URL of an Instagram post or reel</div>
                                 <div class="mt-2">
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="show-cookies-btn">
-                                        <i class="fas fa-cookie-bite me-1"></i> Advanced: Instagram Login Cookies
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="alternative-method-btn">
+                                        <i class="fas fa-exchange-alt me-1"></i> Try Alternative Method
                                     </button>
-                                </div>
-                            </div>
-
-                            <!-- Cookie section (hidden by default) -->
-                            <div id="cookie-section" class="mb-3 d-none">
-                                <div class="alert alert-info">
-                                    <small>
-                                        <i class="fas fa-info-circle me-1"></i> Instagram requires authentication cookies for downloading videos.
-                                        Please provide your Instagram cookies to enable downloading.
-                                    </small>
-                                </div>
-                                <div class="mb-2">
-                                    <label for="sessionid" class="form-label">sessionid Cookie</label>
-                                    <input type="text" class="form-control form-control-sm" id="sessionid" 
-                                        placeholder="Enter your Instagram sessionid cookie">
-                                </div>
-                                <div class="mb-2">
-                                    <label for="csrftoken" class="form-label">csrftoken Cookie</label>
-                                    <input type="text" class="form-control form-control-sm" id="csrftoken" 
-                                        placeholder="Enter your Instagram csrftoken cookie">
-                                </div>
-                                <div class="mb-2">
-                                    <label for="ds_user_id" class="form-label">ds_user_id Cookie</label>
-                                    <input type="text" class="form-control form-control-sm" id="ds_user_id" 
-                                        placeholder="Enter your Instagram ds_user_id cookie">
-                                </div>
-                                <div class="form-text">
-                                    <small>How to get cookies: Login to Instagram in your browser → Open DevTools (F12) → 
-                                    Go to Application tab → Cookies → www.instagram.com → Copy the values of these cookies</small>
                                 </div>
                             </div>
                         </form>

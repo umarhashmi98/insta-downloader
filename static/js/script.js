@@ -179,13 +179,58 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Add cookie input field toggle
-    const showCookiesBtn = document.getElementById('show-cookies-btn');
-    const cookieSection = document.getElementById('cookie-section');
+    // Add alternative method button handler
+    const alternativeMethodBtn = document.getElementById('alternative-method-btn');
     
-    if (showCookiesBtn && cookieSection) {
-        showCookiesBtn.addEventListener('click', function() {
-            cookieSection.classList.toggle('d-none');
+    if (alternativeMethodBtn) {
+        alternativeMethodBtn.addEventListener('click', function() {
+            // If first method failed, try alternative method
+            const instagramUrl = document.getElementById('instagramUrl').value.trim();
+            if (!instagramUrl) {
+                showError('Please enter an Instagram URL first');
+                return;
+            }
+            
+            // Create modified URL for alternative method
+            const alternativeUrl = createAlternativeUrl(instagramUrl);
+            
+            // Show notification
+            showError('Trying alternative method...');
+            
+            // Try the download with alternative method
+            tryAlternativeDownload(alternativeUrl);
         });
+    }
+    
+    // Function to create alternative URL
+    function createAlternativeUrl(url) {
+        try {
+            const parsedUrl = new URL(url);
+            const path = parsedUrl.pathname;
+            
+            // Extract post ID from URL
+            const matches = path.match(/\/(p|reel|tv)\/([a-zA-Z0-9_-]+)/);
+            if (matches && matches[2]) {
+                const postId = matches[2];
+                // Use multiple alternative Instagram downloaders
+                const services = [
+                    `https://www.ddinstagram.com/reel/${postId}`,
+                    `https://www.instagramsave.com/instagram-reels-downloader.php?url=https://www.instagram.com/reel/${postId}`,
+                    `https://sssinstagram.com/reel/${postId}`
+                ];
+                
+                return services[0]; // Return first alternative for now
+            } else {
+                return url; // fallback to original URL
+            }
+        } catch {
+            return url; // fallback to original URL
+        }
+    }
+    
+    // Function to try alternative download method
+    async function tryAlternativeDownload(url) {
+        // Open the alternative URL in a new tab
+        window.open(url, '_blank');
     }
 });
